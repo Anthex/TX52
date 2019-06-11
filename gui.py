@@ -1,8 +1,8 @@
 import tkinter as tk  
-from PIL import Image,ImageTk
+from PIL import Image,ImageTk,ImageDraw, ImageFont
 import sys
 
-def selectPosition():
+def selectPosition(existingFPs = []):
     coord = []
     root = tk.Tk()  
     root.geometry("1406x472")
@@ -10,6 +10,16 @@ def selectPosition():
     root.config(cursor="tcross")
     im=Image.open("plan2.png")  
     im = im.resize((1406,472),Image.ANTIALIAS)
+
+    fnt = ImageFont.truetype('arial.ttf', 20)
+
+    if existingFPs:
+        draw = ImageDraw.Draw(im)
+        for FP in existingFPs:
+            draw.ellipse([FP.X*8.35+162-5,FP.Y*8.35+87-5,FP.X*8.35+162+5,FP.Y*8.35+87+5], fill='#0099ff', outline="#000000")
+            draw.text((FP.X*8.35+162+10,FP.Y*8.35+87+10), str(FP.ID), font=fnt, fill="#0099ff", outline="#000000")
+        del draw
+
     photo=ImageTk.PhotoImage(im)  
     cv = tk.Canvas(scrollregion=(0,0,500,500))  
     cv.pack(side='top', fill='both', expand='yes')  

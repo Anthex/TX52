@@ -3,7 +3,7 @@ from gui import *
 
 def main():
     if not len(session.query(AP).all()):
-        printf("APs non definis, ajout")
+        printf("{output.ORANGE}APs non definis, ajout")
         defineAPs()
 
     printf("beginning")
@@ -30,7 +30,7 @@ def main():
                 """
                 printf("{output.TEAL}Press Enter to add new fingerprint...")
                 input()
-                coord = selectPosition()
+                coord = selectPosition(session.query(Fingerprint).all())
                 printf("{output.ORANGE}Confirm position : {output.GREEN}" + str(coord[0]) + " , " + str(coord[1]) + "{output.ORANGE} ? (Enter to confirm, any key to cancel)")
                 
                 if input():

@@ -27,7 +27,7 @@ def printf(*argv, end='\n'):
         sys.stdout.flush()
 
 ser = serial.Serial(
-    port = 'COM11',
+    port = 'COM4',
     baudrate = 9600,
     parity = serial.PARITY_NONE,
     stopbits = serial.STOPBITS_ONE,
