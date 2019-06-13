@@ -6,7 +6,7 @@ import time
 import serial
 import sys
 
-vectorsPerFP = 2 #number of samples per FP
+vectorsPerFP = 3 #number of samples per FP
 
 #Terminal output formatters
 class output:
@@ -26,13 +26,17 @@ def printf(*argv, end='\n'):
         print(end, end='')
         sys.stdout.flush()
 
-ser = serial.Serial(
-    port = 'COM4',
-    baudrate = 9600,
-    parity = serial.PARITY_NONE,
-    stopbits = serial.STOPBITS_ONE,
-    bytesize=serial.EIGHTBITS
-)
+try:
+    ser = serial.Serial(
+        port = 'COM4',
+        baudrate = 9600,
+        parity = serial.PARITY_NONE,
+        stopbits = serial.STOPBITS_ONE,
+        bytesize=serial.EIGHTBITS
+    )
+except Exception  as e:
+    printf("{output.RED}error accessing COM port: " + str(e))
+    exit()
 
 engine = create_engine('sqlite:///fp.db')
 base = declarative_base()
@@ -78,7 +82,7 @@ class SampleToLocate():
 def BeginFingerprinting(coord):
     x,y = coord[0], coord[1]
     fingerprints = []
-    printf("{output.ORANGE}listening for vectors on serial port...")
+    printf("{output.NORMAL}listening for vectors on serial port...")
     try:
         ser.flushInput()
         for k in range(0,vectorsPerFP):
