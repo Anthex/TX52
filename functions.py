@@ -4,11 +4,15 @@ from sqlalchemy.orm import relationship, sessionmaker
 from operator import itemgetter as ig
 import subprocess
 import serial
+import model
+import math
 import time
 import sys
 import os
 
 vectorsPerFP = 3 #number of samples per FP
+DBNAME='fp.db'
+
 
 #Terminal output formatters
 class output:
@@ -28,16 +32,16 @@ def printf(*argv, end='\n'):
         print(end, end='')
         sys.stdout.flush()
 
-def beginSerial(portName):
+def beginSerial(portName, br=9600):
     try:
         ser = serial.Serial(
             port = portName,
-            baudrate = 9600,
+            baudrate = br,
             parity = serial.PARITY_NONE,
             stopbits = serial.STOPBITS_ONE,
             bytesize=serial.EIGHTBITS
         )
-    except Exception  as e:
+    except Exception as e:
         printf("{output.RED}error accessing COM port: " + str(e))
         exit(1)
     return ser
@@ -45,13 +49,13 @@ def beginSerial(portName):
 """ feeds sql scheme to sqlite3
     alternatively, you can just use "cat schema.sql | sqlite3"
 """
-def resetDB(backupOld=True, verbose=True):
+def resetDB(backupOld=True):
     if backupOld:
-        if os.path.isfile('fp.db'):
-            if subprocess.call("cp fp.db fp_old.db"):
+        if os.path.isfile('{}'.format(DBNAME)):
+            if subprocess.call("cp {} {}.old".format(DBNAME, DBNAME)):
                 printf("{output.RED}error: COULD NOT BACKUP DATABASE")
                 return False
-            if subprocess.call("rm fp.db"):
+            if subprocess.call("rm {}".format(DBNAME)):
                 printf("{output.RED}error: COULD NOT DELETE PREVIOUS DATABASE")
                 return False
     if os.path.isfile('schema.sql'):
@@ -59,7 +63,7 @@ def resetDB(backupOld=True, verbose=True):
     else:
         printf("{output.RED}error: NO SQL SCHEMA FOUND")
         return False
-    if not os.path.isfile('fp.db'):
+    if not os.path.isfile('{}'.format(DBNAME)):
         printf("{output.RED}error: DATABASE NOT CREATED")
         return False
     printf("{output.GREEN}DATABASE RESET SUCCESSFULLY")
@@ -67,7 +71,7 @@ def resetDB(backupOld=True, verbose=True):
 
 
 
-engine = create_engine('sqlite:///fp.db')
+engine = create_engine('sqlite:///'+DBNAME)
 base = declarative_base()
 Session = sessionmaker(bind=engine)
 session = Session()
@@ -79,6 +83,8 @@ class AP(base):
     Y=Column(Float)
     Z=Column(Float)
 
+    def distanceTo(self, sample):
+        return math.sqrt(pow(self.X - sample[0], 2) + pow(self.Y - sample[1], 2) + pow(self.Z - sample[2],2))
 
 class RSSVector(base):
     __tablename__ = "Vector"
@@ -102,11 +108,50 @@ class Fingerprint(base):
     def toString(self):
         return ("("+str(self.X)+","+str(self.Y)+","+str(self.Z)+")") 
 
+    def distanceTo(self, loc):
+        return math.sqrt(pow(self.X - loc.X, 2) + pow(self.Y - loc.Y, 2) + pow(self.Z - loc.Z,2))
+        
 class SampleToLocate():
     def __init__(self, r1, r2, r3):
         self.R1 = r1
         self.R2 = r2
         self.R3 = r3
+
+    def Sadowski(self):
+        coord = []
+        coord.append(model.Sadowski_D_FROM_RSSI(self.R1))
+        coord.append(model.Sadowski_D_FROM_RSSI(self.R2))
+        coord.append(model.Sadowski_D_FROM_RSSI(self.R3))
+        return coord #(D1, D2, D3)
+
+    def FriisLike(self):
+        coord = []
+        coord.append(model.FriisLike(self.R1))
+        coord.append(model.FriisLike(self.R2))
+        coord.append(model.FriisLike(self.R3))
+        return coord #(D1, D2, D3)
+
+    """ returns tuple of arrays w/ the 4 closest fingerprint points
+        (distances[], fingerprints[])
+    """
+    def findKNeighbours(self):
+        distances = []
+        for fp in session.query(Fingerprint).all():
+            dist = abs(self.R1 - fp.vec.RSSI1) \
+                 + abs(self.R1 - fp.vec.RSSI2) \
+                 + abs(self.R1 - fp.vec.RSSI3)
+            distances.append((dist, fp))
+        distances = sorted(distances, key=ig(0))
+        return [x[0] for x in distances][:4], [x[1] for x in distances][:4]
+
+    """ returns an array containing [X,Y,Z] of the estimated location, ugly AF -> to refactor eventually
+    """
+    def resolve_barycenter(self):
+        d, nC = self.findKNeighbours()
+        return \
+          [ 1 / (1+d[0]/d[1]+d[0]/d[2]+d[0]/d[3])*nC[0].X + 1 / (1+d[1]/d[0]+d[1]/d[2]+d[1]/d[3])*nC[1].X + 1 / (1+d[2]/d[1]+d[2]/d[0]+d[2]/d[3])*nC[2].X + 1 / (1+d[3]/d[1]+d[3]/d[2]+d[3]/d[0])*nC[3].X, 
+          1 / (1+d[0]/d[1]+d[0]/d[2]+d[0]/d[3])*nC[0].Y + 1 / (1+d[1]/d[0]+d[1]/d[2]+d[1]/d[3])*nC[1].Y + 1 / (1+d[2]/d[1]+d[2]/d[0]+d[2]/d[3])*nC[2].Y + 1 / (1+d[3]/d[1]+d[3]/d[2]+d[3]/d[0])*nC[3].Y, 
+          1 / (1+d[0]/d[1]+d[0]/d[2]+d[0]/d[3])*nC[0].Z + 1 / (1+d[1]/d[0]+d[1]/d[2]+d[1]/d[3])*nC[1].Z + 1 / (1+d[2]/d[1]+d[2]/d[0]+d[2]/d[3])*nC[2].Z + 1 / (1+d[3]/d[1]+d[3]/d[2]+d[3]/d[0])*nC[3].Z ]
 
 def BeginFingerprinting(ser, coord):
     x,y = coord[0], coord[1]
@@ -152,14 +197,4 @@ def treat(incoming, seq=0):
     printf("{output.GREEN}Vector "+str(seq+1)+"/"+str(vectorsPerFP) + " received : " + result.toString())
     return result
 
-""" returns an array w/ the 4 closest fingerprint points
-"""
-def findKNeighbours(Sample):
-    distances = []
-    for fp in session.query(Fingerprint).all():
-        dist = abs(Sample.R1 - fp.vec.RSSI1) \
-            + abs(Sample.R1 - fp.vec.RSSI2) \
-            + abs(Sample.R1 - fp.vec.RSSI3) 
-        distances.append((dist, fp))
-    distances = sorted(distances, key=ig(0))
-    return [x[1] for x in distances][:4]
+

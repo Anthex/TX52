@@ -5,3 +5,5 @@ fp - Copie.db
 visu.py
 fp_*
 fp *
+*.db
+*.old

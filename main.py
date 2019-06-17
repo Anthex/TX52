@@ -1,8 +1,7 @@
 from functions import *
 from gui import *
-import getopt 
-import sys
 import serial.tools.list_ports
+import getopt 
 
 class method:
     GRAPHICAL = 0
@@ -14,7 +13,6 @@ waitForUserConfirmation = False
 serialPort = "COM11"
 
 def main():
-    # use resetDB() to create database on the first run, or execute "cat schema.sql | sqlite3"
     ser = beginSerial(serialPort)
 
     if not len(session.query(AP).all()):
@@ -32,7 +30,7 @@ def main():
 
     if ser.isOpen():
         try:
-            printf("port open")
+            printf("{output.GREEN}port open")
             ser.flushInput()
             ser.flushOutput()
             while(1):
@@ -64,12 +62,29 @@ def main():
         printf("{output.RED}port wasn't open")
     ser.close()
 
+def locateSampleOnSerial():
+    ser = beginSerial(serialPort)
+    printf("{output.NORMAL}listening for vectors on serial port...")
+    try:
+        ser.flushInput()
+        incoming = str(ser.readline())
+        vector = treat(incoming)
+    except Exception as e2:
+        printf("{output.RED}Error : " + str(e2))
+        exit(1)
+    sample = SampleToLocate(vector.RSSI1, vector.RSSI2, vector.RSSI3)
+    printf(sample.resolve_barycenter())
+    showLocation(session.query(Fingerprint).all(), sample.findKNeighbours()[1], sample.resolve_barycenter())
+    exit()                
 
 if __name__ == "__main__": 
     try:
-        opts, args = getopt.getopt(sys.argv[1:],  '', ['method=', 'reset', 'port='])
+        opts, args = getopt.getopt(sys.argv[1:],  'c', ['method=', 'reset', 'port=', 'locate=','db=','nsamples='])
         for opt, value in opts:
-            if opt == '--reset':
+            if opt == '-c':
+                waitForUserConfirmation = True
+                waitForUserValidation = True
+            elif opt == '--reset':
                 printf("{output.ORANGE} You are about to reset the database, continue? (Y/N)")
                 resp = input()
                 if resp == 'y' or resp =='Y':
@@ -99,7 +114,28 @@ if __name__ == "__main__":
                 else:
                     printf("{output.RED}Please specify a serial port (e.g. --port=COM5)")
                     exit(1)
+            elif opt == '--locate':
+                if value == 'serial':
+                    locateSampleOnSerial()
+                else:
+                    r1,r2,r3=map(int,value.split(','))
+                    sample = SampleToLocate(r1,r2,r3)
+                    printf(sample.resolve_barycenter())
+                    printf(sample.Sadowski())
+                    printf(sample.FriisLike())
+                    showLocation(session.query(Fingerprint).all(), sample.findKNeighbours()[1], sample.resolve_barycenter())
+                    exit()
+            elif opt == '--db':
+                DBNAME=value #rework db init for this to work
+            elif opt =='--nsamples':
+                if value:
+                    vectorsPerFP = int(value)
+                else:
+                    printf("{output.RED}No value specified for nsamples")
+                    exit(1)
     except getopt.error as _:
-            printf("{output.RED}Wrong parameters. Usage : \r\n --reset : resets/creates the FP database \r\n --method=(graphical/manual) : sets input type\r\n --port=<name> : listens on specified port")
+            printf("{output.RED}Wrong parameters. {output.NORMAL}\r\nUsage : \r\n --reset : resets/creates the FP database \r\n --method=(graphical/manual) : sets input type\r\n --port=<name> : listens on specified port\r\n\
+ --locate=r1,r2,r3 or --locate=serial : graphically locates the sample with (r1,r2,r3)\r\n --db=dbname.db : use specified database\r\n --nsamples=n : set #of samples per FP \r\n -c : force user validation")
             exit(1)
     main()
+
