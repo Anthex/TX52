@@ -2,9 +2,11 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from operator import itemgetter as ig
-import time
+import subprocess
 import serial
+import time
 import sys
+import os
 
 vectorsPerFP = 3 #number of samples per FP
 
@@ -26,17 +28,44 @@ def printf(*argv, end='\n'):
         print(end, end='')
         sys.stdout.flush()
 
-try:
-    ser = serial.Serial(
-        port = 'COM4',
-        baudrate = 9600,
-        parity = serial.PARITY_NONE,
-        stopbits = serial.STOPBITS_ONE,
-        bytesize=serial.EIGHTBITS
-    )
-except Exception  as e:
-    printf("{output.RED}error accessing COM port: " + str(e))
-    exit()
+def beginSerial(portName):
+    try:
+        ser = serial.Serial(
+            port = portName,
+            baudrate = 9600,
+            parity = serial.PARITY_NONE,
+            stopbits = serial.STOPBITS_ONE,
+            bytesize=serial.EIGHTBITS
+        )
+    except Exception  as e:
+        printf("{output.RED}error accessing COM port: " + str(e))
+        exit(1)
+    return ser
+
+""" feeds sql scheme to sqlite3
+    alternatively, you can just use "cat schema.sql | sqlite3"
+"""
+def resetDB(backupOld=True, verbose=True):
+    if backupOld:
+        if os.path.isfile('fp.db'):
+            if subprocess.call("cp fp.db fp_old.db"):
+                printf("{output.RED}error: COULD NOT BACKUP DATABASE")
+                return False
+            if subprocess.call("rm fp.db"):
+                printf("{output.RED}error: COULD NOT DELETE PREVIOUS DATABASE")
+                return False
+    if os.path.isfile('schema.sql'):
+        os.system("cat schema.sql | sqlite3")
+    else:
+        printf("{output.RED}error: NO SQL SCHEMA FOUND")
+        return False
+    if not os.path.isfile('fp.db'):
+        printf("{output.RED}error: DATABASE NOT CREATED")
+        return False
+    printf("{output.GREEN}DATABASE RESET SUCCESSFULLY")
+    return True
+
+
 
 engine = create_engine('sqlite:///fp.db')
 base = declarative_base()
@@ -59,7 +88,7 @@ class RSSVector(base):
     RSSI3=Column(Float)
 
     def toString(self):
-        return ("("+str(self.RSSI1)+","+str(self.RSSI2)+","+str(self.RSSI3)+")") 
+        return ("("+str(round(self.RSSI1,1))+","+str(round(self.RSSI2,1))+","+str(round(self.RSSI2,1))+")") 
 
 class Fingerprint(base):
     __tablename__ = "Fingerprint"
@@ -79,7 +108,7 @@ class SampleToLocate():
         self.R2 = r2
         self.R3 = r3
 
-def BeginFingerprinting(coord):
+def BeginFingerprinting(ser, coord):
     x,y = coord[0], coord[1]
     fingerprints = []
     printf("{output.NORMAL}listening for vectors on serial port...")
@@ -90,6 +119,7 @@ def BeginFingerprinting(coord):
             fingerprints.append(treat(incoming,k))
     except Exception as e2:
         printf("{output.RED}Error : " + str(e2))
+        exit(1)
 
     finalRSSI = RSSVector(RSSI1=0, RSSI2=0, RSSI3=0)
     for fp in fingerprints:
